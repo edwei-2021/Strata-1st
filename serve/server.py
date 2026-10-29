@@ -2767,6 +2767,8 @@ class Service:
         # so it is off unless the config's "api_monitor" (or --api-monitor) turns it on
         self.api_monitor = False
         self.api_requests = collections.deque(maxlen=100)  # bounded I/O in memory; no headers or API keys
+        self.api_request_log: Path | None = None          # opt-in JSONL of parsed API request bodies
+        self.api_request_log_lock = threading.Lock()
         self.request_trace = threading.local()
         self.history = collections.deque(maxlen=500)    # the last finished requests, newest last (GET /metrics)
         # since the server started (the Monitor's totals, issue #35)
@@ -3176,7 +3178,18 @@ class Service:
         return getattr(self.engine, "prefill_tok_s_mean", None) if reading else 0.0
 
     def begin_request(self, path, req):
-        """#332: a monitor record for this request, or None when the monitor is off (nothing is kept then)."""
+        """Keep an authenticated API input on disk when requested; optionally add a monitor record."""
+        if not self.api_monitor and self.api_request_log is None:
+            return None
+        if self.api_request_log is not None:
+            line = json.dumps({"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                               "path": path, "request": req}, ensure_ascii=False) + "\n"
+            try:
+                with self.api_request_log_lock:
+                    with self.api_request_log.open("a", encoding="utf-8") as log:
+                        log.write(line)
+            except OSError as e:
+                print(f"[strata] cannot write API request log {self.api_request_log}: {e}", file=sys.stderr, flush=True)
         if not self.api_monitor:
             return None
         raw = json.dumps(req, ensure_ascii=False, indent=2)
@@ -6060,6 +6073,20 @@ def main() -> int:
                          "[{\"gpus\": [0, 1]}, {\"gpus\": [2, 3]}])")
     a = ap.parse_args()
     cfg = json.loads(Path(a.config).read_text(encoding="utf-8-sig")) if a.config else {}   # Notepad adds a BOM
+    api_request_log = None
+    if "api_request_log" in cfg:
+        value = cfg["api_request_log"]
+        if not isinstance(value, str) or not value.strip():
+            ap.error('"api_request_log" must be a non-empty file path')
+        api_request_log = Path(value).expanduser()
+        if not api_request_log.is_absolute():
+            api_request_log = Path(a.config).resolve().parent / api_request_log
+        try:
+            with os.fdopen(os.open(api_request_log, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600),
+                           "a", encoding="utf-8"):
+                pass
+        except OSError as e:
+            ap.error(f'cannot open API request log {api_request_log}: {e}')
     lift_reasoning_effort_arg(cfg)
     if a.replicas is not None:
         cfg["replicas"] = a.replicas
@@ -6199,6 +6226,10 @@ def main() -> int:
         print("[strata] Host check off: any name reaches this server (allowed_hosts \"*\")" if "*" in svc.allowed_hosts
               else f"[strata] also answers to the host names {', '.join(svc.allowed_hosts)} (allowed_hosts)", flush=True)
     svc.api_monitor = a.api_monitor or cfg.get("api_monitor") is True
+    svc.api_request_log = api_request_log
+    if svc.api_request_log is not None:
+        print(f"[strata] API request bodies are appended to {svc.api_request_log} (sensitive; no request headers)",
+              flush=True)
     if svc.api_monitor:
         print("[strata] API request monitor on (/api-monitor): the last 100 requests' prompts and answers are kept in "
               "memory" + ("" if svc.api_key else "; anyone who can reach this server can read them (no API key)"),

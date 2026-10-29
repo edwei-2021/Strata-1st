@@ -1900,6 +1900,15 @@ responses are unaffected. Headers are not recorded, and the monitor key is kept 
 Treat request history as sensitive input/output when exposing Strata on a network: set an API key as above.
 The page uses relative URLs and works through the existing host binding or a reverse proxy.
 
+To keep incoming API prompts across restarts, set `"api_request_log": "strata-api-requests.jsonl"` in
+`strata-<model>.json` and restart the server. The path is relative to that config file (or use an absolute path).
+Each line is a UTF-8 JSON object with a UTC time, endpoint path and the parsed request body; it captures
+`/v1/chat/completions`, `/v1/messages` and `/v1/responses` after API-key authentication. Request headers, including
+the API key, are not recorded. This works without `api_monitor`; the monitor still keeps only its last 100 requests
+in memory. The log grows until you remove or rotate it, and prompts can contain personal data, tool arguments and
+large encoded images. Keep the file private and remove `api_request_log` from the config to stop recording after the
+next restart.
+
 ### Prompt buffers: `bo` shares `emb` (#1454)
 
 The prompt path's half-output buffer `bo` reuses the embedding buffer `emb`, which is dead after the first hyper-connection broadcast: T x 2560 floats less VRAM per chunk (320 MiB at 32768 rows). The planner still counts those bytes by default, so the auto chunk and the cache slots the prompt path borrows are exactly those of 0.1.40.3 and the output bits are unchanged. `STRATA_EMB_REUSE_ACCOUNT=1` lets the planner use the saved bytes: where VRAM limits the chunk it grows (RTX 3060, IQ3_XXS: 6400 to 6656 tokens, 1652 to 1670 borrowed slots, prompt about +3.9%). A different chunk changes the prompt path's rounding, so prompt residuals are not byte-identical to the default; greedy output matched in our runs. Opt-in until it has a KL measurement.

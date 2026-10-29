@@ -1,5 +1,6 @@
 """Request inspection through HTTP; no native model or GPU is required."""
 import json
+import tempfile
 import threading
 import time
 import unittest
@@ -51,6 +52,39 @@ class MonitorOff(unittest.TestCase):
         finally:
             httpd.shutdown()
             httpd.server_close()
+
+    def test_disk_log_is_opt_in_and_does_not_need_memory_monitor(self):
+        tok = ByteTokenizer()
+        svc = Service(MockEngine(tok, "Hello.", max_context=4096), tok,
+                      ChatTemplate(Path(__file__).parent / "chat_template.jinja"))
+        svc.api_key = "secret-key"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "requests.jsonl"
+            svc.api_request_log = path
+            httpd = serve(svc, port=0)
+            url = f"http://127.0.0.1:{httpd.server_address[1]}/v1/chat/completions"
+            body = json.dumps({"messages": [{"role": "user", "content": "What did Strata receive?"}]}).encode()
+            try:
+                unauthenticated = urllib.request.Request(url, data=body)
+                with self.assertRaises(urllib.error.HTTPError) as error:
+                    urllib.request.urlopen(unauthenticated, timeout=10)
+                self.assertEqual(error.exception.code, 401)
+                error.exception.close()
+                self.assertFalse(path.exists())
+
+                authenticated = urllib.request.Request(
+                    url, data=body, headers={"Content-Type": "application/json",
+                                             "Authorization": "Bearer secret-key"})
+                with urllib.request.urlopen(authenticated, timeout=10) as response:
+                    self.assertEqual(response.status, 200)
+                entry = json.loads(path.read_text(encoding="utf-8").strip())
+                self.assertEqual(entry["path"], "/v1/chat/completions")
+                self.assertEqual(entry["request"]["messages"][0]["content"], "What did Strata receive?")
+                self.assertNotIn("secret-key", path.read_text(encoding="utf-8"))
+                self.assertEqual(len(svc.api_requests), 0)
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
 
 
 class Monitor(unittest.TestCase):
