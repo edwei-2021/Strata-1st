@@ -31,9 +31,16 @@ def backup_once(path):
     return backup
 
 
+def default_root():
+    beside_package = Path(__file__).resolve().parent.parent
+    if (beside_package / "serve" / "server.py").is_file():
+        return beside_package
+    return Path(r"C:\Strata-main.2")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Enable persistent Strata API prompt logging")
-    parser.add_argument("--root", type=Path, default=Path(r"C:\Strata-main"))
+    parser.add_argument("--root", type=Path, default=default_root())
     parser.add_argument("--config", default="strata-nvfp4-nvfp4.json")
     parser.add_argument("--log", default="strata-api-requests.jsonl")
     parser.add_argument("--disable", action="store_true", help="stop logging after the next Strata restart")

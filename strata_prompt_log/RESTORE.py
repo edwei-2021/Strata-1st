@@ -5,7 +5,7 @@ import json
 import shutil
 from pathlib import Path
 
-from INSTALL import replace_atomically
+from INSTALL import default_root, replace_atomically
 
 
 def snapshot(path):
@@ -38,7 +38,7 @@ def patched_from(original, variants):
 
 def main():
     parser = argparse.ArgumentParser(description="Restore Strata before the prompt-log patch")
-    parser.add_argument("--root", type=Path, default=Path(r"C:\Strata-main"))
+    parser.add_argument("--root", type=Path, default=default_root())
     parser.add_argument("--config", default="strata-nvfp4-nvfp4.json")
     args = parser.parse_args()
     server = args.root / "serve" / "server.py"
