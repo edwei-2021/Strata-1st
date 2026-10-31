@@ -1,0 +1,46 @@
+{
+  "variants": [
+    {
+      "name": "Strata before 0.2.8",
+      "patches": [
+        {
+          "old": "        self.api_monitor = False\n        self.api_requests = collections.deque(maxlen=100)  # bounded I/O in memory; no headers or API keys\n        self.request_trace = threading.local()\n        self.history = collections.deque(maxlen=500)    # the last finished requests, newest last (GET /metrics)\n",
+          "new": "        self.api_monitor = False\n        self.api_requests = collections.deque(maxlen=100)  # bounded I/O in memory; no headers or API keys\n        self.api_request_log: Path | None = None          # opt-in JSONL of parsed API request bodies\n        self.api_request_log_lock = threading.Lock()\n        self.request_trace = threading.local()\n        self.history = collections.deque(maxlen=500)    # the last finished requests, newest last (GET /metrics)\n"
+        },
+        {
+          "old": "\n    def begin_request(self, path, req):\n        \"\"\"#332: a monitor record for this request, or None when the monitor is off (nothing is kept then).\"\"\"\n        if not self.api_monitor:\n            return None\n",
+          "new": "\n    def begin_request(self, path, req):\n        \"\"\"Keep an authenticated API input on disk when requested; optionally add a monitor record.\"\"\"\n        if not self.api_monitor and self.api_request_log is None:\n            return None\n        if self.api_request_log is not None:\n            line = json.dumps({\"time\": time.strftime(\"%Y-%m-%dT%H:%M:%SZ\", time.gmtime()),\n                               \"path\": path, \"request\": req}, ensure_ascii=False) + \"\\n\"\n            try:\n                with self.api_request_log_lock:\n                    with self.api_request_log.open(\"a\", encoding=\"utf-8\") as log:\n                        log.write(line)\n            except OSError as e:\n                print(f\"[strata] cannot write API request log {self.api_request_log}: {e}\", file=sys.stderr, flush=True)\n        if not self.api_monitor:\n            return None\n"
+        },
+        {
+          "old": "    a = ap.parse_args()\n    cfg = json.loads(Path(a.config).read_text(encoding=\"utf-8-sig\")) if a.config else {}   # Notepad adds a BOM\n    lift_reasoning_effort_arg(cfg)\n    if a.replicas is not None:\n",
+          "new": "    a = ap.parse_args()\n    cfg = json.loads(Path(a.config).read_text(encoding=\"utf-8-sig\")) if a.config else {}   # Notepad adds a BOM\n    api_request_log = None\n    if \"api_request_log\" in cfg:\n        value = cfg[\"api_request_log\"]\n        if not isinstance(value, str) or not value.strip():\n            ap.error('\"api_request_log\" must be a non-empty file path')\n        api_request_log = Path(value).expanduser()\n        if not api_request_log.is_absolute():\n            api_request_log = Path(a.config).resolve().parent / api_request_log\n        try:\n            with os.fdopen(os.open(api_request_log, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600),\n                           \"a\", encoding=\"utf-8\"):\n                pass\n        except OSError as e:\n            ap.error(f'cannot open API request log {api_request_log}: {e}')\n    lift_reasoning_effort_arg(cfg)\n    if a.replicas is not None:\n"
+        },
+        {
+          "old": "              else f\"[strata] also answers to the host names {', '.join(svc.allowed_hosts)} (allowed_hosts)\", flush=True)\n    svc.api_monitor = a.api_monitor or cfg.get(\"api_monitor\") is True\n    if svc.api_monitor:\n        print(\"[strata] API request monitor on (/api-monitor): the last 100 requests' prompts and answers are kept in \"\n",
+          "new": "              else f\"[strata] also answers to the host names {', '.join(svc.allowed_hosts)} (allowed_hosts)\", flush=True)\n    svc.api_monitor = a.api_monitor or cfg.get(\"api_monitor\") is True\n    svc.api_request_log = api_request_log\n    if svc.api_request_log is not None:\n        print(f\"[strata] API request bodies are appended to {svc.api_request_log} (sensitive; no request headers)\",\n              flush=True)\n    if svc.api_monitor:\n        print(\"[strata] API request monitor on (/api-monitor): the last 100 requests' prompts and answers are kept in \"\n"
+        }
+      ]
+    },
+    {
+      "name": "Strata main 870aedd9 (0.2.8)",
+      "patches": [
+        {
+          "old": "        self.api_monitor = False\n        self.api_requests = collections.deque(maxlen=100)  # bounded I/O in memory; no headers or API keys\n        self.request_trace = threading.local()\n        self.history = collections.deque(maxlen=500)    # the last finished requests, newest last (GET /metrics)\n",
+          "new": "        self.api_monitor = False\n        self.api_requests = collections.deque(maxlen=100)  # bounded I/O in memory; no headers or API keys\n        self.api_request_log: Path | None = None          # opt-in JSONL of parsed API request bodies\n        self.api_request_log_lock = threading.Lock()\n        self.request_trace = threading.local()\n        self.history = collections.deque(maxlen=500)    # the last finished requests, newest last (GET /metrics)\n"
+        },
+        {
+          "old": "\n    def begin_request(self, path, req):\n        \"\"\"#332: a monitor record for this request, or None when the monitor is off (nothing is kept then).\"\"\"\n        if not self.api_monitor:\n            return None\n",
+          "new": "\n    def begin_request(self, path, req):\n        \"\"\"Keep an authenticated API input on disk when requested; optionally add a monitor record.\"\"\"\n        if not self.api_monitor and self.api_request_log is None:\n            return None\n        if self.api_request_log is not None:\n            line = json.dumps({\"time\": time.strftime(\"%Y-%m-%dT%H:%M:%SZ\", time.gmtime()),\n                               \"path\": path, \"request\": req}, ensure_ascii=False) + \"\\n\"\n            try:\n                with self.api_request_log_lock:\n                    with self.api_request_log.open(\"a\", encoding=\"utf-8\") as log:\n                        log.write(line)\n            except OSError as e:\n                print(f\"[strata] cannot write API request log {self.api_request_log}: {e}\", file=sys.stderr, flush=True)\n        if not self.api_monitor:\n            return None\n"
+        },
+        {
+          "old": "    config_bytes = Path(a.config).read_bytes() if a.config else b\"\"\n    cfg = parse_config_text(config_bytes.decode(\"utf-8-sig\"), a.config) if a.config else {}   # Notepad adds a BOM\n    split_joined_args(cfg)\n    if a.config and a.engine == \"strata\":\n",
+          "new": "    config_bytes = Path(a.config).read_bytes() if a.config else b\"\"\n    cfg = parse_config_text(config_bytes.decode(\"utf-8-sig\"), a.config) if a.config else {}   # Notepad adds a BOM\n    api_request_log = None\n    if \"api_request_log\" in cfg:\n        value = cfg[\"api_request_log\"]\n        if not isinstance(value, str) or not value.strip():\n            ap.error('\"api_request_log\" must be a non-empty file path')\n        api_request_log = Path(value).expanduser()\n        if not api_request_log.is_absolute():\n            api_request_log = Path(a.config).resolve().parent / api_request_log\n        try:\n            with os.fdopen(os.open(api_request_log, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600),\n                           \"a\", encoding=\"utf-8\"):\n                pass\n        except OSError as e:\n            ap.error(f'cannot open API request log {api_request_log}: {e}')\n    split_joined_args(cfg)\n    if a.config and a.engine == \"strata\":\n"
+        },
+        {
+          "old": "              else f\"[strata] also answers to the host names {', '.join(svc.allowed_hosts)} (allowed_hosts)\", flush=True)\n    svc.api_monitor = a.api_monitor or cfg.get(\"api_monitor\") is True\n    if svc.api_monitor:\n        print(\"[strata] API request monitor on (/api-monitor): the last 100 requests' prompts and answers are kept in \"\n",
+          "new": "              else f\"[strata] also answers to the host names {', '.join(svc.allowed_hosts)} (allowed_hosts)\", flush=True)\n    svc.api_monitor = a.api_monitor or cfg.get(\"api_monitor\") is True\n    svc.api_request_log = api_request_log\n    if svc.api_request_log is not None:\n        print(f\"[strata] API request bodies are appended to {svc.api_request_log} (sensitive; no request headers)\",\n              flush=True)\n    if svc.api_monitor:\n        print(\"[strata] API request monitor on (/api-monitor): the last 100 requests' prompts and answers are kept in \"\n"
+        }
+      ]
+    }
+  ]
+}
