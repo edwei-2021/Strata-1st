@@ -27,3 +27,13 @@ Strata 已內建 `/api-monitor`。若只需查看最近 100 筆，不必改程�
     & 'C:\Python313\python.exe' 'C:\strata_prompt_log\INSTALL.py' --disable
 
 這會從模型設定檔移除 `api_request_log`。程式碼仍保留，但預設不寫日誌。若要刪除舊記錄，先確認不再需要，再刪除 `C:\Strata-main\strata-api-requests.jsonl`。
+
+## 完整還原原本的 Strata 程式碼
+
+先停止 Strata，再執行：
+
+    & 'C:\Python313\python.exe' 'C:\strata_prompt_log\RESTORE.py'
+
+還原程式會比對目前 `server.py` 與所有備份，只使用能**確切重建目前補丁版本**的備份；所以先前版本的舊備份不會覆蓋你更新後的 Strata。它也會移除設定檔的 `api_request_log`；若設定檔其餘內容未改，會還原原始檔案；若安裝後你改過其他設定，則只移除這個記錄選項並保留其他修改。還原前會再備份目前檔案。若程式碼在安裝後又被手動修改，還原工具會停止，不會猜測要覆蓋哪份程式。完成後重新啟動 Strata。已有的 `strata-api-requests.jsonl` 日誌不會自動刪除。
+
+如果 ZIP 解壓縮在 `D:\agent-evolution-platform`，請把上述 `RESTORE.py` 路徑換成 `D:\agent-evolution-platform\strata_prompt_log\RESTORE.py`。
